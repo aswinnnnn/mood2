@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.journal-page {
+  @apply bg-white rounded-lg shadow-md relative;
+  background-color: white;
+  background-image: 
+    /* Red vertical line (margin) */
+    linear-gradient(to right, transparent 24px, #ffcdd2 24px, #ffcdd2 25px, transparent 25px),
+    /* Horizontal lines */
+    linear-gradient(#e5e7eb 1px, transparent 1px);
+  background-size: 
+    /* Red line width and full height */
+    100% 100%,
+    /* Horizontal line spacing */
+    100% 2.5rem;
+  background-position: 
+    /* Red line position */
+    0 0,
+    /* Horizontal lines position */
+    0 0;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+  min-height: 200px; /* Ensure minimum height for short entries */
+}
+
+.date-header {
+  @apply px-8 py-3 border-b border-gray-200;
+  background: white;
+  font-family: 'Courier New', monospace;
+}
+
+/* Style for the textarea to align with background lines */
+textarea {
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+  background: transparent;
+  line-height: 2.5rem;
+  background-attachment: local;
+  padding-left: 45px !important; /* Align text after the red margin line */
+  color: #2c3e50;
+}
+
+/* Hide scrollbar for cleaner look */
+textarea::-webkit-scrollbar {
+  display: none;
+}
+
+textarea {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Style for the diary entries display */
+.diary-entry {
+  font-family: 'Courier New', monospace;
+  padding: 0.5rem 0;
+  color: #2c3e50;
+}
+
+.diary-line {
+  height: 2.5rem;
+  line-height: 2.5rem;
+  padding-left: 45px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Response styles */
+.response-box {
+  @apply bg-purple-50 p-4 rounded-lg border-l-4 border-purple-400 mt-4 mx-8;
+  font-family: system-ui, -apple-system, sans-serif;
+}
