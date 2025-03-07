@@ -1,14 +1,38 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogOut } from 'lucide-react';
 
 export default function NavBar() {
-  const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { user, setUser } = useAuth();
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    // Fetch user details when component mounts
+    const fetchUserDetails = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await response.json();
+        setUserName(data.name);
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+      }
+    };
+
+    fetchUserDetails();
+  }, [user]);
 
   const handleLogout = () => {
-    logout();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user_id');
+    setUser(null);
     navigate('/');
   };
 
@@ -19,18 +43,15 @@ export default function NavBar() {
           <div className="flex items-center">
             <span className="text-purple-600 text-lg font-semibold">MoodScribe</span>
           </div>
-          {user && (
-            <div className="flex items-center space-x-4">
-              <span className="text-gray-600">Hi, {user.name}</span>
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-2 px-4 py-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
-              </button>
-            </div>
-          )}
+          <div className="flex items-center space-x-4">
+            {userName && <span>Hi, {userName}</span>}
+            <button
+              onClick={handleLogout}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </div>
     </nav>

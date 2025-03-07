@@ -1,26 +1,37 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { authenticateUser, login } from '../utils/auth';
 import { useAuth } from '../context/AuthContext';
-import { authenticateUser } from '../utils/auth';
 import { Sparkles } from 'lucide-react';
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { setUser } = useAuth();
+  const [credentials, setCredentials] = useState({
+    username: '',
+    password: ''
+  });
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    console.log('Attempting login with:', credentials.username);
 
-    const result = await authenticateUser(username, password);
-    if (result.success && result.user) {
-      login(result.user);
-      navigate('/journal');
-    } else {
-      setError(result.error || 'Invalid username or password');
+    try {
+      const response = await authenticateUser(credentials.username, credentials.password);
+      console.log('Login response:', response);
+      
+      if (response && response.access_token) {
+        login(response);
+        setUser({ id: response.user_id });
+        navigate('/journal');
+      } else {
+        setError('Invalid login response');
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      setError(error.message || 'Login failed');
     }
   };
 
@@ -37,21 +48,30 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="text-red-500">{error}</div>}
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full p-2 border rounded"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-2 border rounded"
-          />
-          <button type="submit" className="w-full bg-purple-600 text-white p-2 rounded">
+          <div>
+            <label className="block mb-2">Username</label>
+            <input
+              type="text"
+              value={credentials.username}
+              onChange={(e) => setCredentials({...credentials, username: e.target.value})}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          <div>
+            <label className="block mb-2">Password</label>
+            <input
+              type="password"
+              value={credentials.password}
+              onChange={(e) => setCredentials({...credentials, password: e.target.value})}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-purple-600 text-white p-2 rounded hover:bg-purple-700"
+          >
             Sign In
           </button>
           

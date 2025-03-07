@@ -1,83 +1,65 @@
-import { API_BASE_URL } from './config';
+import axios from 'axios';
+import { AuthResponse, UserData } from '../types/auth';
 
-interface AuthResponse {
-  success: boolean;
-  user?: {
-    id: string;
-    username: string;
-    email: string;
-    name: string;
-  };
-  error?: string;
-  token?: string;
-}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-interface RegisterData {
-  email: string;
-  username: string;
-  name: string;
-  password: string;
-}
-
-export async function authenticateUser(username: string, password: string): Promise<AuthResponse> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ username, password }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Authentication failed');
+export const authenticateUser = async (username: string, password: string): Promise<AuthResponse> => {
+    console.log('Attempting to authenticate with:', { username });
+    try {
+        const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+            username,
+            password,
+        });
+        console.log('Authentication response:', response.data);
+        return response.data;
+    } catch (error: any) {
+        console.error('Login error:', error.response?.data || error.message);
+        throw new Error(error.response?.data?.detail || 'Authentication failed');
     }
+};
 
-    if (data.token) {
-      localStorage.setItem('token', data.token);
+export const login = (authData: AuthResponse) => {
+    console.log('Storing auth data:', authData);
+    localStorage.setItem('token', authData.access_token);
+    localStorage.setItem('user_id', authData.user_id);
+};
+
+export const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user_id');
+};
+
+export const registerUser = async (userData: UserData): Promise<AuthResponse> => {
+    console.log('Attempting to register user with:', userData);
+    try {
+        const response = await axios.post(`${API_BASE_URL}/api/auth/register`, {
+            user: userData,
+            preferences: {}  // Empty preferences for initial registration
+        });
+        console.log('Registration response:', response.data);
+        return response.data;
+    } catch (error: any) {
+        console.error('Registration error:', error.response?.data || error.message);
+        throw new Error(error.response?.data?.detail || 'Registration failed');
     }
+};
 
-    return {
-      success: true,
-      user: data.user,
-      token: data.token,
-    };
-  } catch (error) {
-    console.error('Authentication error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Authentication failed',
-    };
-  }
-}
-
-export async function registerUser(userData: RegisterData): Promise<AuthResponse> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(userData),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.detail || 'Registration failed');
+export const registerUserWithPreferences = async (
+    userData: UserData,
+    preferences: any
+): Promise<AuthResponse> => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/api/auth/register`, {
+            user: userData,
+            preferences: preferences
+        });
+        return response.data;
+    } catch (error: any) {
+        throw new Error(error.response?.data?.detail || 'Registration failed');
     }
+};
 
-    return {
-      success: true,
-      user: data.user,
-    };
-  } catch (error) {
-    console.error('Registration error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Registration failed',
-    };
-  }
-} 
+// Helper function to get the auth token
+export const getAuthToken = (): string | null => {
+    return localStorage.getItem('token');
+}; 

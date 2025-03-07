@@ -5,6 +5,7 @@ import RegisterPage from './pages/RegisterPage';
 import JournalPage from './pages/JournalPage';
 import NavBar from './components/NavBar';
 import { useAuth } from './context/AuthContext';
+import PreferencesPage from './pages/PreferencesPage';
 
 // Protected Route wrapper component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -26,10 +27,12 @@ function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
+  const { isAuthenticated } = useAuth();
+  
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<LoginPage />} />
+        <Route path="/" element={isAuthenticated ? <Navigate to="/journal" /> : <LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route
           path="/journal"
@@ -39,6 +42,14 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route 
+          path="/preferences" 
+          element={
+            <ProtectedRoute>
+              <PreferencesPage />
+            </ProtectedRoute>
+          } 
+        />
       </Routes>
     </Layout>
   );
@@ -46,10 +57,10 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <Router>
-      <AuthProvider>
+    <AuthProvider>
+      <Router>
         <AppRoutes />
-      </AuthProvider>
-    </Router>
+      </Router>
+    </AuthProvider>
   );
 }

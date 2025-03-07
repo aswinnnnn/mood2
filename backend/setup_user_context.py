@@ -1,7 +1,10 @@
-import json
 from typing import List, Optional
 from pydantic import BaseModel
 import os
+from db.database import Database
+from models.user_preferences import UserPreferences
+from datetime import datetime
+import asyncio
 
 class UserContext(BaseModel):
     mood: Optional[str] = None
@@ -29,67 +32,74 @@ def get_valid_input(prompt: str, valid_options: List[str] = None, is_list: bool 
                 return user_input
             print(f"Please choose from: {', '.join(valid_options)}")
 
-def setup_user_context():
+async def setup_user_context():
     print("Welcome! Let's set up your personal context to provide better recommendations.")
     
-    # Get user ID
-    user_id = input("\nPlease enter your user name: ").strip()
+    # Initialize database connection
+    await Database.connect_db()
     
-    # Initialize context
-    context = UserContext()
-    
-    # Get current mood
-    context.mood = "happy"
-    
-    # Get favorite movie genres
-    valid_genres = ["action", "comedy", "drama", "horror", "romance", "sci-fi", "thriller", 
-                   "documentary", "animation", "fantasy", "family", "adventure"]
-    print("\nWhat are your favorite movie genres?")
-    print(f"Options: {', '.join(valid_genres)}")
-    context.favorite_genres = []
-    while len(context.favorite_genres) < 5:
-        genre = get_valid_input(f"Enter genre {len(context.favorite_genres) + 1}/5:", valid_genres)
-        if genre not in context.favorite_genres:
-            context.favorite_genres.append(genre)
-    
-    # Get recent activities
-    context.recent_activities = get_valid_input(
-        "What activities have you been doing lately?", is_list=True
-    )
-    
-    # Get watched movies
-    context.watched_movies = get_valid_input(
-        "What are some movies you've watched recently?", is_list=True
-    )
-    
-    # Get stress level
-    context.stress_level = 5
-    
-    # Get goals
-    context.goals = get_valid_input(
-        "What are some of your current goals or things you'd like to work on?", is_list=True
-    )
-    
-    # Save to file
-    context_file = "user_context.json"
     try:
-        if os.path.exists(context_file):
-            with open(context_file, 'r') as f:
-                contexts = json.load(f)
+        # Get user ID
+        user_id = input("\nPlease enter your user name: ").strip()
+        
+        # Initialize preferences
+        preferences = UserPreferences(
+            user_id=user_id,
+            name=user_id,  # Using username as name for simplicity
+            favorite_genres=[],
+            hobbies=[],
+            likes=[],
+            dislikes=[],
+            activity_level="medium"
+        )
+        
+        # Get favorite movie genres
+        valid_genres = ["action", "comedy", "drama", "horror", "romance", "sci-fi", "thriller", 
+                       "documentary", "animation", "fantasy", "family", "adventure"]
+        print("\nWhat are your favorite movie genres?")
+        print(f"Options: {', '.join(valid_genres)}")
+        
+        preferences.favorite_genres = []
+        while len(preferences.favorite_genres) < 5:
+            genre = get_valid_input(f"Enter genre {len(preferences.favorite_genres) + 1}/5:", valid_genres)
+            if genre not in preferences.favorite_genres:
+                preferences.favorite_genres.append(genre)
+        
+        # Get hobbies/activities
+        preferences.hobbies = get_valid_input(
+            "What activities have you been doing lately?", is_list=True
+        )
+        
+        # Get likes
+        preferences.likes = get_valid_input(
+            "What are some things you like?", is_list=True
+        )
+        
+        # Get dislikes
+        preferences.dislikes = get_valid_input(
+            "What are some things you dislike?", is_list=True
+        )
+        
+        # Save to database
+        result = await Database.get_db().user_preferences.update_one(
+            {"user_id": user_id},
+            {"$set": preferences.dict()},
+            upsert=True
+        )
+        
+        # Check if the operation was acknowledged
+        if result.acknowledged:
+            print("\nPreferences saved successfully!")
+            print("\nYour preferences:")
+            print(preferences.dict(exclude_none=True))
         else:
-            contexts = {}
-        
-        contexts[user_id] = context.dict(exclude_none=True)
-        
-        with open(context_file, 'w') as f:
-            json.dump(contexts, f, indent=2)
-        
-        print("\nContext saved successfully!")
-        print("\nYour context:")
-        print(json.dumps(context.dict(exclude_none=True), indent=2))
-        
+            print("\nError saving preferences: Operation not acknowledged")
+            
     except Exception as e:
-        print(f"Error saving context: {e}")
+        print(f"Error: {e}")
+    finally:
+        # Close database connection
+        await Database.close_db()
 
 if __name__ == "__main__":
-    setup_user_context() 
+    asyncio.run(setup_user_context()) 

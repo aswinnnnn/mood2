@@ -7,9 +7,18 @@ from test1 import EmotionalSupportService
 import asyncio
 from dotenv import load_dotenv
 import os
-from auth import router as auth_router
+from auth import router as auth_router, get_current_user
 from pathlib import Path
 from db.database import Database
+from models.user_preferences import UserPreferences
+from models.user_activity import UserActivity
+from db.operations import UserOperations
+from utils.encryption import encrypt_data, decrypt_data
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Get the absolute path to the backend directory
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,16 +30,22 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup_db_client():
-    await Database.connect_db()
+    try:
+        logger.info("Starting up database connection...")
+        await Database.connect_db()
+        logger.info("Database connection established successfully")
+    except Exception as e:
+        logger.error(f"Failed to connect to database: {str(e)}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     await Database.close_db()
 
-# Configure CORS
+# Configure CORS with more specific settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Add your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,8 +59,8 @@ if not API_KEY:
 # Initialize the service
 service = EmotionalSupportService.get_instance(API_KEY)
 
-# Include the auth router
-app.include_router(router=auth_router, prefix="/api/auth", tags=["auth"])
+# Mount the auth router with a prefix
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 class DiaryEntry(BaseModel):
     user_id: str
@@ -85,5 +100,55 @@ async def get_conversation_history(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
-async def read_root():
-    return {"message": "Welcome to the FastAPI application!"} 
+async def root():
+    return {"message": "Welcome to MoodScribe API"}
+
+@app.post("/api/preferences")
+async def save_preferences(
+    preferences: UserPreferences,
+    current_user: dict = Depends(get_current_user)
+):
+    preferences.user_id = current_user["_id"]
+    success = await UserOperations.save_preferences(preferences)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save preferences")
+    return {"message": "Preferences saved successfully"}
+
+@app.get("/api/suggestions")
+async def get_suggestions(current_user: dict = Depends(get_current_user)):
+    suggestions = await UserOperations.get_well_being_suggestions(str(current_user["_id"]))
+    return suggestions
+
+@app.get("/api/activity-log")
+async def get_activity_log(
+    current_user: dict = Depends(get_current_user),
+    limit: int = 10
+):
+    db = Database.get_db()
+    activities = await db.user_activities.find(
+        {"user_id": str(current_user["_id"])}
+    ).sort("timestamp", -1).limit(limit).to_list(length=limit)
+    return activities
+
+@app.get("/api/preferences/{user_id}")
+async def get_preferences(user_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access these preferences")
+    return await UserOperations.get_preferences(user_id)
+
+@app.put("/api/preferences/{user_id}")
+async def update_preferences(
+    user_id: str, 
+    preferences: UserPreferences,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update these preferences")
+    success = await UserOperations.save_preferences(preferences)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update preferences")
+    return {"message": "Preferences updated successfully"}
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy"} 

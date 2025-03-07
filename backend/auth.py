@@ -10,6 +10,14 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from db.database import Database
+from db.operations import UserOperations
+from models.user_preferences import UserPreferences
+import logging
+from fastapi.middleware.cors import CORSMiddleware
+from utils.security import pwd_context, create_access_token
+from bson import ObjectId
+
+logger = logging.getLogger(__name__)
 
 # Get the absolute path to the backend directory
 BASE_DIR = Path(__file__).resolve().parent
@@ -48,16 +56,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        user_id: str = payload.get("sub")
+        if user_id is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-        
-    user = await get_user_from_db(token_data.username)
+
+    db = Database.get_db()
+    user = await db.users.find_one({"_id": user_id})
     if user is None:
         raise credentials_exception
+        
+    # Convert ObjectId to string for JSON serialization
+    user["_id"] = str(user["_id"])
     return user
 
 class UserCreate(BaseModel):
@@ -109,53 +120,121 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+class UserRegistration(BaseModel):
+    user: dict
+    preferences: dict = {}
+
 @router.post("/register")
-async def register(user_data: UserCreate):
+async def register_user(registration_data: UserRegistration):
     try:
-        # Generate user ID (MongoDB will handle this with _id)
-        hashed_password = pwd_context.hash(user_data.password)
-        user_dict = {
-            "email": user_data.email,
-            "username": user_data.username,
-            "name": user_data.name,
-            "hashed_password": hashed_password
+        # Ensure database is connected
+        if Database.client is None:
+            await Database.connect_db()
+        
+        # Extract user and preferences data
+        user = registration_data.user
+        preferences = registration_data.preferences
+        
+        # Check if username already exists
+        db = Database.get_db()
+        existing_user = await db.users.find_one({"username": user["username"]})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        # Create user
+        hashed_password = pwd_context.hash(user["password"])
+        user_doc = {
+            "username": user["username"],
+            "email": user["email"],
+            "hashed_password": hashed_password,
+            "name": user["name"],
+            "created_at": datetime.now()
         }
         
-        user_id = await save_user_to_db(user_dict)
+        result = await db.users.insert_one(user_doc)
+        user_id = str(result.inserted_id)
+        
+        # Save preferences with user_id if provided
+        if preferences:
+            preferences["user_id"] = user_id
+            preferences["name"] = user["name"]
+            await UserOperations.save_preferences(UserPreferences(**preferences))
+        
+        # Create initial token
+        access_token = create_access_token(data={"sub": user_id})
         
         return {
-            "success": True,
-            "user": {
-                "id": user_id,
-                "email": user_data.email,
-                "username": user_data.username,
-                "name": user_data.name
-            }
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_id": user_id
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+        logger.error(f"Registration error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+class LoginCredentials(BaseModel):
+    username: str
+    password: str
 
 @router.post("/login")
-async def login(user_data: UserLogin):
-    user = await get_user_from_db(user_data.username)
-    if not user:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    
-    if not pwd_context.verify(user_data.password, user["hashed_password"]):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user["username"]}, expires_delta=access_token_expires
-    )
-    
-    return {
-        "success": True,
-        "user": {
+async def login_user(credentials: LoginCredentials):
+    logger.info(f"Login attempt for user: {credentials.username}")
+    try:
+        # Ensure database is connected
+        if Database.client is None:
+            await Database.connect_db()
+        
+        # Get user from database
+        db = Database.get_db()
+        user = await db.users.find_one({"username": credentials.username})
+        
+        if not user:
+            logger.warning(f"User not found: {credentials.username}")
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        # Verify password
+        if not pwd_context.verify(credentials.password, user["hashed_password"]):
+            logger.warning(f"Invalid password for user: {credentials.username}")
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        # Create access token
+        user_id = str(user["_id"])
+        access_token = create_access_token(data={"sub": user_id})
+        
+        logger.info(f"Successful login for user: {credentials.username}")
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_id": user_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/me")
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+            
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+            
+        db = Database.get_db()
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        return {
             "id": str(user["_id"]),
-            "email": user["email"],
             "username": user["username"],
+            "email": user["email"],
             "name": user["name"]
-        },
-        "token": access_token
-    } 
+        }
+    except Exception as e:
+        logger.error(f"Error getting current user: {str(e)}")
+        raise HTTPException(status_code=401, detail="Could not validate credentials") 
